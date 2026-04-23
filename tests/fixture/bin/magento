@@ -1,0 +1,3 @@
+#!/usr/bin/env php
+<?php
+// fake Magento bin/magento so the script validates the path

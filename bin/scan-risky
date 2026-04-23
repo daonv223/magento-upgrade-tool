@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ -z "${1:-}" ]; then
+    echo "Usage: bin/scan-risky <magento-project-path> [--paths=<paths>] [--php-version=<ver>] [--output=<file>]"
+    echo ""
+    echo "Options:"
+    echo "  --paths=<paths>              Comma-separated scan paths (relative to project root)"
+    echo "                               Default: /app/code,/app/design"
+    echo "  --php-version=<ver>          Target PHP version (8.0, 8.1, 8.2, 8.3, 8.4, 8.5)"
+    echo "                               Default: 8.3"
+    echo "  --output=<file>              Output JSON file path"
+    echo "                               Default: <project>/reports/risky-findings.json"
+    echo ""
+    echo "Examples:"
+    echo "  bin/scan-risky /Users/daonguyen/Sites/swearm2"
+    echo "  bin/scan-risky /Users/daonguyen/Sites/swearm2 --output=/tmp/report.json"
+    echo "  bin/scan-risky /Users/daonguyen/Sites/swearm2 --paths=/app/code,/vendor/some-module"
+    echo "  bin/scan-risky /Users/daonguyen/Sites/swearm2 --php-version=8.4"
+    exit 1
+fi
+
+MAGENTO_PATH="$(cd "$1" && pwd)"
+
+if [ ! -f "$MAGENTO_PATH/bin/magento" ]; then
+    echo "Error: $MAGENTO_PATH does not look like a Magento project (bin/magento not found)"
+    exit 1
+fi
+
+export MAGENTO_PATH="$MAGENTO_PATH"
+
+SCAN_PATHS=""
+PHP_VERSION=""
+OUTPUT=""
+
+for arg in "${@:2}"; do
+    case "$arg" in
+        --paths=*) SCAN_PATHS="${arg#--paths=}" ;;
+        --php-version=*) PHP_VERSION="${arg#--php-version=}" ;;
+        --output=*) OUTPUT="${arg#--output=}" ;;
+    esac
+done
+
+if [ -n "$SCAN_PATHS" ]; then
+    export SCAN_PATHS="$SCAN_PATHS"
+fi
+
+if [ -n "$PHP_VERSION" ]; then
+    export PHP_VERSION="$PHP_VERSION"
+fi
+
+if [ -n "$OUTPUT" ]; then
+    export SCAN_RISKY_OUTPUT="$OUTPUT"
+fi
+
+echo "=== PHP 8.x Risky Pattern Scanner ==="
+echo "Target:  $MAGENTO_PATH"
+echo "Paths:   ${SCAN_PATHS:-/app/code,/app/design}"
+echo "PHP:     ${PHP_VERSION:-8.3}"
+echo "Output:  ${OUTPUT:-$MAGENTO_PATH/reports/risky-findings.json}"
+echo ""
+
+php "$SCRIPT_DIR/scan-risky.php"

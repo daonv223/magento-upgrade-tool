@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ -z "${1:-}" ]; then
+    echo "Usage: bin/fix-deprecation <magento-project-path> [--dry-run] [--paths=<paths>] [--php-version=<ver>]"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run                    Preview changes without writing"
+    echo "  --paths=<paths>              Comma-separated scan paths (relative to project root)"
+    echo "                               Default: /app/code,/app/design"
+    echo "  --php-version=<ver>          Target PHP version (8.0, 8.1, 8.2, 8.3, 8.4, 8.5)"
+    echo "                               Default: 8.3"
+    echo ""
+    echo "Examples:"
+    echo "  bin/fix-deprecation /Users/daonguyen/Sites/swearm2"
+    echo "  bin/fix-deprecation /Users/daonguyen/Sites/swearm2 --dry-run"
+    echo "  bin/fix-deprecation /Users/daonguyen/Sites/swearm2 --paths=/app/code,/vendor/some-module"
+    echo "  bin/fix-deprecation /Users/daonguyen/Sites/swearm2 --php-version=8.2"
+    exit 1
+fi
+
+MAGENTO_PATH="$(cd "$1" && pwd)"
+
+if [ ! -f "$MAGENTO_PATH/bin/magento" ]; then
+    echo "Error: $MAGENTO_PATH does not look like a Magento project (bin/magento not found)"
+    exit 1
+fi
+
+export MAGENTO_PATH="$MAGENTO_PATH"
+
+SCAN_PATHS=""
+DRY_RUN=false
+PHP_VERSION=""
+
+for arg in "${@:2}"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --paths=*) SCAN_PATHS="${arg#--paths=}" ;;
+        --php-version=*) PHP_VERSION="${arg#--php-version=}" ;;
+    esac
+done
+
+if [ -n "$SCAN_PATHS" ]; then
+    export SCAN_PATHS="$SCAN_PATHS"
+fi
+
+if [ -n "$PHP_VERSION" ]; then
+    export PHP_VERSION="$PHP_VERSION"
+fi
+
+echo "=== PHP 8.x Auto-Fixer: Deprecation Fixes ==="
+echo "Target:  $MAGENTO_PATH"
+echo "Paths:   ${SCAN_PATHS:-/app/code,/app/design}"
+echo "PHP:     ${PHP_VERSION:-8.3}"
+echo ""
+
+if [ "$DRY_RUN" = true ]; then
+    echo "[DRY RUN] Showing changes only..."
+    php "$SCRIPT_DIR/../vendor/bin/rector" process --config "$SCRIPT_DIR/../rector.php" --dry-run
+else
+    echo "[LIVE] Applying fixes..."
+    php "$SCRIPT_DIR/../vendor/bin/rector" process --config "$SCRIPT_DIR/../rector.php"
+fi
