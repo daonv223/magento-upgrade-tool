@@ -89,59 +89,83 @@ Verify download:
 php composer.phar --version
 ```
 
-### Step 7: Clean Incompatible require-dev Packages
+### Step 7: Align require-dev with Target Version
 
-Before updating, scan `require-dev` for packages that won't work with the target PHP version. Remove them all in one batch.
+Fetch the official `composer.json` from the target Magento version to use as reference for `require-dev` constraints:
 
-```bash
-php -r '$c=json_decode(file_get_contents("composer.json"),true); foreach($c["require-dev"] ?? [] as $k=>$v) echo "$k: $v\n";'
+```
+https://raw.githubusercontent.com/magento/magento2/<TARGET_VERSION>/composer.json
 ```
 
-Check each package's PHP compatibility. Common incompatible packages in older Magento projects:
-- `phpunit/phpunit` with old versions (~6.x, ~7.x) — requires PHP 7.x
-- `magento/magento2-functional-testing-framework` old versions — requires PHP 7.x
-- `allure-framework/allure-phpunit` old versions — depends on old phpunit
-- `friendsofphp/php-cs-fixer` old versions (~2.x) — requires PHP 7.x
-- `sebastian/phpcpd` old versions (~3.x) — requires PHP 7.x
-- `lusitanian/oauth` old versions — requires PHP 7.x
-- `pdepend/pdepend` old pinned versions — requires PHP 7.x
-- `phpmd/phpmd` old versions — may conflict with newer dependencies
-
-Remove all incompatible ones in a single command:
-
-```bash
-php composer.phar remove <package1> <package2> <package3> --dev --no-update --no-plugins 2>&1
+For example, if target is `2.4.8-p4`:
+```
+https://raw.githubusercontent.com/magento/magento2/2.4.8-p4/composer.json
 ```
 
-Report what was removed to user.
+Compare the project's `require-dev` against the reference:
+
+1. **Packages that exist in both** — update the project's constraint to match the reference version
+2. **Packages in the project but NOT in the reference** — check if they have a version compatible with the target PHP. If yes, widen to `"*"`. If abandoned or no compatible version exists, inform user and ask whether to remove or find a replacement
+3. **Packages in the reference but NOT in the project** — do NOT add them (keep the project's dev tooling minimal to what they already use)
+
+Apply updates in a single command:
+
+```bash
+php composer.phar require --dev <package1>:"<ref_version1>" <package2>:"<ref_version2>" <package3>:"*" --no-update 2>&1
+```
+
+Report changes to user: what was updated to match the reference, and what was widened because no reference existed.
 
 ### Step 8: Update Composer Requirement
 
-Try `require-commerce` first, fallback to `require`:
+Based on edition detected in Step 1:
 
+**Community edition:**
 ```bash
-php composer.phar require-commerce magento/product-community-edition <TARGET_VERSION> --no-update --no-plugins
+php composer.phar require magento/product-community-edition <TARGET_VERSION> --no-update
 ```
 
-If that fails:
+**Enterprise edition:**
 ```bash
-php composer.phar require magento/product-community-edition <TARGET_VERSION> --no-update --no-plugins
+php composer.phar require-commerce magento/product-enterprise-edition <TARGET_VERSION> --no-update
 ```
 
-Use the correct edition package name detected in Step 1.
+If target version >= 2.4.8, also add the Amasty compatibility fix:
+```bash
+php composer.phar require amasty/module-mage-248-fix --no-update
+```
 
-### Step 9: Dry Run
+### Step 9: Disable Patches
+
+If `composer.json` has a `patches` section inside `extra` (used by `cweagans/composer-patches`), disable it before running composer update — patches were written for old vendor code and will likely fail on new versions.
+
+Rename the key to temporarily disable:
 
 ```bash
-php composer.phar update --no-plugins --dry-run 2>&1
+php -r '
+$c = json_decode(file_get_contents("composer.json"), true);
+if (isset($c["extra"]["patches"])) {
+    $c["extra"]["_patches_disabled"] = $c["extra"]["patches"];
+    unset($c["extra"]["patches"]);
+    file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    echo "Patches disabled temporarily.";
+} else {
+    echo "No patches section found.";
+}
+'
+```
+
+Report to user which patches were disabled.
+
+### Step 10: Dry Run
+
+```bash
+php composer.phar update -W --dry-run 2>&1
 ```
 
 If errors about dependency upgrades needed (e.g. "package X requires Y ^2.0 but root requires ^1.0"):
 - Tell user which third-party modules need upgrading to be compatible with the target Magento version
 - List each module with its current constraint and what version is needed
-- Give user two options:
-  1. Upgrade those modules to compatible versions manually, then retry
-  2. Add `-W` flag to allow composer to automatically upgrade/downgrade/remove dependencies
 - Do NOT automatically remove or change constraints on third-party modules
 
 If errors about PHP incompatibility in `require` packages:
@@ -150,17 +174,93 @@ If errors about PHP incompatibility in `require` packages:
 
 Loop until clean or user decides to stop.
 
-### Step 10: Apply Update
+### Step 11: Backup Vendor and Apply Update
+
+Before updating, zip the current vendor folder as a rollback safety net:
 
 ```bash
-php composer.phar update --no-plugins
+zip -qr vendor-backup.zip vendor/
 ```
 
-If errors occur, use same approach as Step 9 — tell user which modules need upgrading.
+Apply the update:
 
-### Step 10: Magento Post-Upgrade
+```bash
+php composer.phar update -W
+```
 
-Run sequentially, stop on first error and attempt fix:
+**If composer update fails (non-zero exit code):**
+
+1. Restore original state:
+```bash
+git checkout composer.json composer.lock
+rm -rf vendor/
+unzip -qo vendor-backup.zip
+```
+
+2. Report the error to user and use same approach as Step 10 — tell user which modules need upgrading.
+
+3. After user confirms fixes, re-apply Steps 7–10, then retry Step 11.
+
+**If composer update succeeds:**
+
+Remove the backup:
+```bash
+rm -f vendor-backup.zip
+```
+
+### Step 12: Review and Re-enable Patches
+
+After composer update succeeds, review each disabled patch to determine if it should be kept:
+
+```bash
+php -r '
+$c = json_decode(file_get_contents("composer.json"), true);
+if (isset($c["extra"]["_patches_disabled"])) {
+    foreach ($c["extra"]["_patches_disabled"] as $pkg => $patches) {
+        echo "$pkg:\n";
+        foreach ($patches as $name => $file) {
+            echo "  $name => $file\n";
+        }
+    }
+}
+'
+```
+
+For each patch:
+1. Read the patch file content to understand what it fixes
+2. Check if the issue is already fixed in the target version (search the new vendor code)
+3. If still needed, check if the patch applies cleanly to the new vendor code:
+   ```bash
+   git apply --check <patch_file> 2>&1
+   ```
+
+Present findings to user:
+- **Keep**: patch still needed and applies cleanly
+- **Remove**: issue already fixed in target version
+- **Needs update**: patch still needed but doesn't apply cleanly (file changed)
+
+After user confirms which patches to keep, re-enable them:
+
+```bash
+php -r '
+$c = json_decode(file_get_contents("composer.json"), true);
+$keep = ["package/name" => ["Patch Name" => "./patches/file.patch"]]; // confirmed patches
+if (!empty($keep)) {
+    $c["extra"]["patches"] = $keep;
+}
+unset($c["extra"]["_patches_disabled"]);
+file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+'
+```
+
+If patches were re-enabled, run composer update again to apply them:
+```bash
+php composer.phar update -W
+```
+
+### Step 13: Magento Post-Upgrade
+
+Run sequentially, stop on first error:
 
 ```bash
 bin/magento setup:upgrade
@@ -168,7 +268,19 @@ bin/magento setup:di:compile
 bin/magento setup:static-content:deploy -f
 ```
 
-### Step 11: Verify
+**If any command fails**, identify the problematic module from the error output and ask user to choose:
+
+1. **Temporarily disable the module** — rename its `registration.php` to `registration.php.bak`:
+   ```bash
+   mv <module_path>/registration.php <module_path>/registration.php.bak
+   ```
+   Then re-run the failed command. Repeat for additional modules if needed.
+
+2. **Try to fix the module** — analyze the error, propose a fix, and apply after user confirms. **Only fix the specific code that breaks the current command** — do not fix unrelated issues or attempt a full module compatibility update.
+
+After all post-upgrade commands pass, report any modules that were disabled so user can address them later.
+
+### Step 14: Verify
 
 ```bash
 bin/magento --version
