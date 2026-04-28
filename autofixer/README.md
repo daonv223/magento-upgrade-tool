@@ -78,23 +78,23 @@ Magento generated classes (Factory, Proxy, Interceptor, ExtensionInterface, Exte
 ### Scan for problems
 
 ```bash
-bin/scan-problem /path/to/magento-project
+bin/scan-problems /path/to/magento-project
 ```
 
 ### Custom paths and options
 
 ```bash
 # Scan a specific vendor module
-bin/scan-problem /path/to/magento --paths=/app/code/Betanet
+bin/scan-problems /path/to/magento --paths=/app/code/Betanet
 
 # Custom PHPStan level (default: 0)
-bin/scan-problem /path/to/magento --level=5
+bin/scan-problems /path/to/magento --level=5
 
 # Custom output path
-bin/scan-problem /path/to/magento --output=/tmp/report.json
+bin/scan-problems /path/to/magento --output=/tmp/report.json
 
 # Combine options
-bin/scan-problem /path/to/magento --paths=/app/code/Betanet --level=3 --php-version=8.4
+bin/scan-problems /path/to/magento --paths=/app/code/Betanet --level=3 --php-version=8.4
 ```
 
 Default output: `<project>/reports/risky-findings-<paths>.json`
@@ -182,7 +182,7 @@ To add rules, edit the `$rectorConfig->rules([...])` array in `rector.php`.
 ```
 autofixer/
 ├── bin/fix-deprecation              Auto-safe fixer runner
-├── bin/scan-problem                 Problem scanner (PHPStan-based)
+├── bin/scan-problems                 Problem scanner (PHPStan-based)
 ├── bin/scan-risky.php               (legacy, unused)
 ├── rector.php                       Rector configuration
 ├── src/Rector/                      Custom Rector rules (auto-safe)
