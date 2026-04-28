@@ -1,0 +1,10 @@
+/vendor/
+/node_modules/
+/.idea/
+/.vscode/
+*.cache
+reports/
+.phpunit.result.cache
+
+# Local dev context/notes not meant for the repo
+/context/
