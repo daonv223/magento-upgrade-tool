@@ -47,7 +47,7 @@ Non-existent directories are skipped automatically.
 
 ### Custom PHP version
 
-Default target is PHP 8.3. Override with `--php-version=`:
+Default target is the current PHP version. Override with `--php-version=`:
 
 ```bash
 bin/fix-deprecation /path/to/magento --php-version=8.2
@@ -63,79 +63,70 @@ Supported values: `8.0`, `8.1`, `8.2`, `8.3`, `8.4`, `8.5`, or raw integers like
 ```bash
 # Auto-safe fixer tests
 tests/run-test.sh
-
-# Risky pattern scanner tests
-tests/run-test-scan-risky.sh
 ```
 
 The scripts validate that the target path is a Magento project (checks for `bin/magento`) before running.
 
-## Risky Pattern Scanner
+## Problem Scanner
 
-Detects patterns that need human/AI review before fixing — too context-dependent for blind Rector transforms. Outputs a JSON report for a subagent to later apply context-aware fixes.
+Runs PHPStan against the Magento project to detect problems that need human/AI review — too context-dependent for blind Rector transforms. Outputs a JSON report (PHPStan native format, grouped by Magento module) for a subagent to later apply context-aware fixes.
 
-### Scan for risky patterns
+Uses the target project's own PHPStan installation, so it picks up the project's autoloader, extensions, and configuration automatically.
 
-```bash
-bin/scan-risky /path/to/magento-project
-```
+Magento generated classes (Factory, Proxy, Interceptor, ExtensionInterface, ExtensionAttributesFactory) are filtered out automatically since they are not real errors.
 
-### Custom output path
+### Scan for problems
 
 ```bash
-bin/scan-risky /path/to/magento-project --output=/tmp/report.json
+bin/scan-problem /path/to/magento-project
 ```
 
-Default output: `<project>/reports/risky-findings.json`
-
-### Scanner options
-
-Same flags as `bin/fix-deprecation`:
+### Custom paths and options
 
 ```bash
-bin/scan-risky /path/to/magento --paths=/app/code --php-version=8.4
+# Scan a specific vendor module
+bin/scan-problem /path/to/magento --paths=/app/code/Betanet
+
+# Custom PHPStan level (default: 0)
+bin/scan-problem /path/to/magento --level=5
+
+# Custom output path
+bin/scan-problem /path/to/magento --output=/tmp/report.json
+
+# Combine options
+bin/scan-problem /path/to/magento --paths=/app/code/Betanet --level=3 --php-version=8.4
 ```
 
-### Detection rules
-
-| Rule ID | Severity | Detects |
-|---|---|---|
-| `monolog-logrecord` | error | Classes extending `Monolog\Formatter\*` or `Monolog\Handler\*` with `format(array $record)` — Monolog 3.x requires `LogRecord` object |
-| `constructor-param-reorder` | warning | Constructors where required typed params appear after optional params — fatal in PHP 8.x |
+Default output: `<project>/reports/risky-findings-<paths>.json`
 
 ### JSON output format
 
+PHPStan native JSON format, grouped by Magento module:
+
 ```json
 {
-  "scan_date": "2026-04-23T12:00:00Z",
-  "target": "/path/to/magento",
-  "php_version": "8.3",
-  "total_findings": 2,
-  "findings": [
-    {
-      "rule_id": "monolog-logrecord",
-      "severity": "error",
-      "file": "app/code/Amasty/Base/Debug/System/AmastyFormatter.php",
-      "line": 18,
-      "description": "format() method uses array $record signature — Monolog 3.x requires LogRecord object",
-      "context": {
-        "method": "format",
-        "current_signature": "format(array $record)",
-        "parent_class": "Monolog\\Formatter\\LineFormatter",
-        "array_access_keys": ["message", "level"]
-      },
-      "class": "AmastyFormatter",
-      "php_version": "8.x"
+  "totals": { "errors": 0, "file_errors": 85 },
+  "files": {
+    "Betanet_Bnewsletter": {
+      "errors": 12,
+      "files": {
+        "/path/to/app/code/Betanet/Bnewsletter/Controller/Delete.php": {
+          "errors": 1,
+          "messages": [
+            {
+              "message": "Method ... should return ...",
+              "line": 21,
+              "ignorable": true,
+              "identifier": "return.missing"
+            }
+          ]
+        }
+      }
     }
-  ],
-  "summary": {
-    "monolog-logrecord": 1,
-    "constructor-param-reorder": 1
-  }
+  },
+  "errors": []
 }
 ```
-
-This scanner is **read-only** — no code modifications. Fixing via subagent is a separate future task.
 
 ## Active rules
 
@@ -181,7 +172,7 @@ This scanner is **read-only** — no code modifications. Fixing via subagent is 
 Rector config is in `rector.php`. Key settings:
 
 - **Target paths**: configurable via `--paths=` flag or `SCAN_PATHS` env var (default: `/app/code,/app/design`)
-- **PHP version**: configurable via `--php-version=` flag or `PHP_VERSION` env var (default: `8.3`)
+- **PHP version**: configurable via `--php-version=` flag or `PHP_VERSION` env var (default: current PHP version)
 - **`MAGENTO_PATH`**: set automatically by the script, or pass via env var
 
 To add rules, edit the `$rectorConfig->rules([...])` array in `rector.php`.
@@ -191,7 +182,8 @@ To add rules, edit the `$rectorConfig->rules([...])` array in `rector.php`.
 ```
 autofixer/
 ├── bin/fix-deprecation              Auto-safe fixer runner
-├── bin/scan-risky                   Risky pattern scanner
+├── bin/scan-problem                 Problem scanner (PHPStan-based)
+├── bin/scan-risky.php               (legacy, unused)
 ├── rector.php                       Rector configuration
 ├── src/Rector/                      Custom Rector rules (auto-safe)
 │   ├── DateTimeNullToNowRector.php
@@ -202,16 +194,10 @@ autofixer/
 │   ├── ZendJsonToNativeRector.php
 │   ├── ZendValidateIsToNativeRector.php
 │   └── ZendDateIsDateToDateTimeRector.php
-├── src/Scanner/                     Risky pattern scanners
-│   ├── Finding.php
-│   ├── ScannerInterface.php
-│   ├── MonologLogRecordScanner.php
-│   └── ConstructorParamReorderScanner.php
+├── src/Scanner/                     (legacy, unused)
 ├── composer.json                    Dependencies
-├── phpcs.xml.dist                   PHPCompatibility config
 ├── tests/
 │   ├── run-test.sh                  Auto-safe test runner (54 assertions)
-│   ├── run-test-scan-risky.sh       Risky scanner test runner (28 assertions)
 │   └── fixture/                     Fake Magento project for testing
 └── TARGET.MD                        Rule catalog (all 28 classified patterns)
 ```

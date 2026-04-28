@@ -8,10 +8,10 @@ if [ -z "${1:-}" ]; then
     echo ""
     echo "Options:"
     echo "  --dry-run                    Preview changes without writing"
-    echo "  --paths=<paths>              Comma-separated scan paths (relative to project root)"
+    echo "  --paths=<paths>              Comma-separated scan paths/files (relative to project root)"
     echo "                               Default: /app/code,/app/design"
     echo "  --php-version=<ver>          Target PHP version (8.0, 8.1, 8.2, 8.3, 8.4, 8.5)"
-    echo "                               Default: 8.3"
+    echo "                               Default: current PHP version"
     echo ""
     echo "Examples:"
     echo "  bin/fix-deprecation /Users/daonguyen/Sites/swearm2"
@@ -32,7 +32,7 @@ export MAGENTO_PATH="$MAGENTO_PATH"
 
 SCAN_PATHS=""
 DRY_RUN=false
-PHP_VERSION=""
+PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')"
 
 for arg in "${@:2}"; do
     case "$arg" in
@@ -46,14 +46,12 @@ if [ -n "$SCAN_PATHS" ]; then
     export SCAN_PATHS="$SCAN_PATHS"
 fi
 
-if [ -n "$PHP_VERSION" ]; then
-    export PHP_VERSION="$PHP_VERSION"
-fi
+export PHP_VERSION="$PHP_VERSION"
 
 echo "=== PHP 8.x Auto-Fixer: Deprecation Fixes ==="
 echo "Target:  $MAGENTO_PATH"
 echo "Paths:   ${SCAN_PATHS:-/app/code,/app/design}"
-echo "PHP:     ${PHP_VERSION:-8.3}"
+echo "PHP:     $PHP_VERSION"
 echo ""
 
 if [ "$DRY_RUN" = true ]; then

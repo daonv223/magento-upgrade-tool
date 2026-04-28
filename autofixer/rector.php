@@ -11,6 +11,7 @@ use Betanet\Autofixer\Rector\ZendJsonToNativeRector;
 use Betanet\Autofixer\Rector\ZendDateIsDateToDateTimeRector;
 use Betanet\Autofixer\Rector\ZendValidateIsToNativeRector;
 use Rector\CodeQuality\Rector\Class_\CompleteDynamicPropertiesRector;
+use Rector\CodeQuality\Rector\ClassMethod\OptionalParametersAfterRequiredRector;
 use Rector\Config\RectorConfig;
 use Rector\Php52\Rector\Switch_\ContinueToBreakInSwitchRector;
 use Rector\Php72\Rector\Assign\ListEachRector;
@@ -40,7 +41,7 @@ return static function (RectorConfig $rectorConfig) use ($phpVersionMap): void {
         static fn(string $p): string => $projectPath . $p,
         array_filter(explode(',', $scanPaths)),
     );
-    $paths = array_filter($paths, 'is_dir');
+    $paths = array_filter($paths, static fn(string $p): bool => is_dir($p) || is_file($p));
 
     if (empty($paths)) {
         throw new \RuntimeException(
@@ -77,6 +78,7 @@ return static function (RectorConfig $rectorConfig) use ($phpVersionMap): void {
         HttpBuildQueryNullArgRector::class,
         ZendDateIsDateToDateTimeRector::class,
         CompleteDynamicPropertiesRector::class,
+        OptionalParametersAfterRequiredRector::class,
     ]);
 
     $rectorConfig->ruleWithConfiguration(RenameClassRector::class, [

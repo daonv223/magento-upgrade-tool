@@ -260,25 +260,38 @@ php composer.phar update -W
 
 ### Step 13: Magento Post-Upgrade
 
-Run sequentially, stop on first error:
+**Spawn a sub-agent** to run the post-upgrade commands. The sub-agent must loop until all three commands succeed.
 
-```bash
-bin/magento setup:upgrade
-bin/magento setup:di:compile
-bin/magento setup:static-content:deploy -f
+The three commands must run in order — each depends on the previous:
+
+```
+1. bin/magento setup:upgrade
+2. bin/magento setup:di:compile
+3. bin/magento setup:static-content:deploy -f
 ```
 
-**If any command fails**, identify the problematic module from the error output and ask user to choose:
+**Sub-agent error-handling loop:**
 
-1. **Temporarily disable the module** — rename its `registration.php` to `registration.php.bak`:
+For each command, run it and check the exit code. If it fails:
+
+1. **Parse the error output** to identify the problematic module/class.
+
+2. **Attempt a simple fix first** — if the error is straightforward (e.g. missing return type, incompatible type hint, undefined constant, missing `use` import, deprecated function call), fix the specific broken line(s) in the module code. Only fix what the error message points to — do not refactor or fix unrelated code.
+
+3. **If the fix is not simple** (e.g. deep architectural incompatibility, missing dependency, class completely removed upstream), **temporarily disable the module** by renaming its `registration.php`:
    ```bash
    mv <module_path>/registration.php <module_path>/registration.php.bak
    ```
-   Then re-run the failed command. Repeat for additional modules if needed.
 
-2. **Try to fix the module** — analyze the error, propose a fix, and apply after user confirms. **Only fix the specific code that breaks the current command** — do not fix unrelated issues or attempt a full module compatibility update.
+4. **Re-run the same command** after either fixing or disabling. Repeat until the command passes.
 
-After all post-upgrade commands pass, report any modules that were disabled so user can address them later.
+5. **Move to the next command** only after the current one succeeds.
+
+The sub-agent must keep a running list of:
+- **Modules fixed**: what was changed and why
+- **Modules disabled**: path and reason
+
+After all three commands pass, the sub-agent reports back with the full list of fixes and disabled modules so the user can review them.
 
 ### Step 14: Verify
 

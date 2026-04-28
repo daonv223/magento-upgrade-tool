@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ -z "${1:-}" ]; then
+    echo "Usage: bin/scan-risky <magento-project-path> [--paths=<paths>] [--php-version=<ver>] [--output=<file>] [--level=<level>]"
+    echo ""
+    echo "Options:"
+    echo "  --paths=<paths>              Comma-separated scan paths (relative to project root)"
+    echo "                               Default: /app/code,/app/design"
+    echo "  --php-version=<ver>          Target PHP version (8.0, 8.1, 8.2, 8.3, 8.4, 8.5)"
+    echo "                               Default: current PHP version"
+    echo "  --level=<level>              PHPStan analysis level (0-9)"
+    echo "                               Default: 0"
+    echo "  --output=<file>              Output JSON file path"
+    echo "                               Default: <project>/reports/risky-findings.json"
+    echo ""
+    echo "Examples:"
+    echo "  bin/scan-risky /Users/daonguyen/Sites/swearm2"
+    echo "  bin/scan-risky /Users/daonguyen/Sites/swearm2 --output=/tmp/report.json"
+    echo "  bin/scan-risky /Users/daonguyen/Sites/swearm2 --paths=/app/code,/vendor/some-module"
+    echo "  bin/scan-risky /Users/daonguyen/Sites/swearm2 --php-version=8.4 --level=7"
+    exit 1
+fi
+
+MAGENTO_PATH="$(cd "$1" && pwd)"
+
+if [ ! -f "$MAGENTO_PATH/bin/magento" ]; then
+    echo "Error: $MAGENTO_PATH does not look like a Magento project (bin/magento not found)"
+    exit 1
+fi
+
+PHPSTAN_BIN="$MAGENTO_PATH/vendor/bin/phpstan"
+if [ ! -f "$PHPSTAN_BIN" ]; then
+    echo "Error: PHPStan not found at $PHPSTAN_BIN"
+    echo "Install it in the Magento project: composer require --dev phpstan/phpstan"
+    exit 1
+fi
+
+SCAN_PATHS=""
+PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')"
+PHPSTAN_LEVEL="0"
+OUTPUT=""
+
+for arg in "${@:2}"; do
+    case "$arg" in
+        --paths=*) SCAN_PATHS="${arg#--paths=}" ;;
+        --php-version=*) PHP_VERSION="${arg#--php-version=}" ;;
+        --level=*) PHPSTAN_LEVEL="${arg#--level=}" ;;
+        --output=*) OUTPUT="${arg#--output=}" ;;
+    esac
+done
+
+SCAN_PATHS="${SCAN_PATHS:-/app/code,/app/design}"
+# Include sanitized scan path in filename so parallel runs don't overwrite
+SAFE_PATHS="$(echo "$SCAN_PATHS" | tr '/' '-' | tr ',' '_' | sed 's/^-//')"
+OUTPUT="${OUTPUT:-$MAGENTO_PATH/reports/risky-findings-${SAFE_PATHS}.json}"
+
+# Build scan paths as arguments, filtering to dirs that exist
+ANALYSE_PATHS=()
+IFS=',' read -ra PATH_PARTS <<< "$SCAN_PATHS"
+for p in "${PATH_PARTS[@]}"; do
+    full="$MAGENTO_PATH$p"
+    if [ -d "$full" ]; then
+        ANALYSE_PATHS+=("$full")
+    fi
+done
+
+if [ ${#ANALYSE_PATHS[@]} -eq 0 ]; then
+    echo "Error: no valid scan paths found under $MAGENTO_PATH"
+    exit 1
+fi
+
+echo "=== PHPStan Risky Pattern Scanner ==="
+echo "Target:  $MAGENTO_PATH"
+echo "Paths:   $SCAN_PATHS"
+echo "PHP:     $PHP_VERSION"
+echo "Level:   $PHPSTAN_LEVEL"
+echo "Output:  $OUTPUT"
+echo ""
+
+OUTPUT_DIR=$(dirname "$OUTPUT")
+if [ ! -d "$OUTPUT_DIR" ]; then
+    mkdir -p "$OUTPUT_DIR"
+fi
+
+echo "Running PHPStan..."
+echo ""
+
+cd "$MAGENTO_PATH"
+
+# PHPStan exits non-zero when it finds errors — that's expected
+"$PHPSTAN_BIN" analyse \
+    --level="$PHPSTAN_LEVEL" \
+    --error-format=json \
+    --no-progress \
+    --memory-limit=2G \
+    "${ANALYSE_PATHS[@]}" \
+    2>/dev/null | php -r '
+$data = json_decode(file_get_contents("php://stdin"), true);
+$generated = "/(?:Factory|Proxy|Interceptor|ExtensionInterface|ExtensionAttributesFactory)[\.\,\s]/";
+$filtered = 0;
+foreach ($data["files"] as $file => &$fileData) {
+    $kept = [];
+    foreach ($fileData["messages"] as $msg) {
+        if (($msg["identifier"] ?? "") === "class.notFound" && preg_match($generated, $msg["message"])) {
+            $filtered++;
+            continue;
+        }
+        $kept[] = $msg;
+    }
+    $fileData["messages"] = $kept;
+    $fileData["errors"] = count($kept);
+}
+$data["files"] = array_filter((array)$data["files"], fn($fd) => $fd["errors"] > 0);
+$data["totals"]["file_errors"] -= $filtered;
+
+// Group files by Magento module (Vendor_Module)
+$modules = [];
+foreach ($data["files"] as $file => $fileData) {
+    $module = "other";
+    if (preg_match("#/app/code/([^/]+/[^/]+)/#", $file, $m)) {
+        $module = str_replace("/", "_", $m[1]);
+    } elseif (preg_match("#/vendor/([^/]+/[^/]+)/#", $file, $m)) {
+        $module = $m[1];
+    }
+    if (!isset($modules[$module])) {
+        $modules[$module] = ["errors" => 0, "files" => new stdClass()];
+    }
+    $modules[$module]["files"]->{$file} = $fileData;
+    $modules[$module]["errors"] += $fileData["errors"];
+}
+ksort($modules);
+$data["files"] = $modules;
+
+echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+' > "$OUTPUT" || true
+
+TOTAL=$(php -r 'echo json_decode(file_get_contents($argv[1]), true)["totals"]["file_errors"] ?? 0;' "$OUTPUT")
+echo "Scan complete: $TOTAL finding(s) written to $OUTPUT"
