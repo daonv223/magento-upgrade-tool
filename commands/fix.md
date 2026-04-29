@@ -12,8 +12,19 @@ Scan a Magento project path for context-dependent upgrade issues, then offer to 
 
 - `$ARGUMENTS` — relative path inside the Magento project (e.g. `app/code/Betanet` or `app/code/Betanet/MyModule`).
 
-## Step 1: Auto-detect Magento Project
+## Step 1: Detect Plugin Root and Magento Project
 
+**Plugin root**: Find the plugin's install location by locating the scanner:
+```bash
+find ~/.claude/plugins -path "*/magento-upgrade-tool/autofixer/bin/scan-problems" -exec dirname {} \; 2>/dev/null | head -1 | sed 's|/autofixer/bin||'
+```
+If not found, also check:
+```bash
+find ~/Sites -maxdepth 4 -path "*/upgrade-tool/src/autofixer/bin/scan-problems" -exec dirname {} \; 2>/dev/null | head -1 | sed 's|/autofixer/bin||'
+```
+Store as `PLUGIN_ROOT`.
+
+**Magento root**:
 1. Start from the current working directory (`pwd`).
 2. Walk upward parent directories until you find `bin/magento`.
 3. If found, store that directory as `MAGENTO_ROOT`.
@@ -30,10 +41,10 @@ Example: `app/code/Betanet` → `/app/code/Betanet`.
 
 ## Step 3: Run Problem Scanner
 
-Execute the bundled scanner (relative to this plugin root):
+Execute the bundled scanner:
 
 ```bash
-./autofixer/bin/scan-problems "$MAGENTO_ROOT" --paths="$SCAN_PATH"
+"$PLUGIN_ROOT/autofixer/bin/scan-problems" "$MAGENTO_ROOT" --paths="$SCAN_PATH"
 ```
 
 Wait for it to finish. Note the output file path printed at the end (usually `$MAGENTO_ROOT/reports/risky-findings-<sanitized-path>.json`).

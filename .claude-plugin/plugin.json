@@ -19,6 +19,10 @@
       "source": "./commands/upgrade.md",
       "description": "Magento version upgrade assistant. Detects edition/version, handles composer updates, and fixes errors",
       "argumentHint": "<target-version>"
+    },
+    "review-modules": {
+      "source": "./commands/review-modules.md",
+      "description": "Review all 3rd-party modules in app/code, scan for problems, and generate an xlsx report"
     }
   }
 }
