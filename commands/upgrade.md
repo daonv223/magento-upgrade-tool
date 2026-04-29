@@ -1,11 +1,5 @@
 ---
-name: upgrade
-description: >
-  Magento version upgrade assistant. Detects current edition and version,
-  validates target version, handles composer updates, and fixes errors.
-  Use when user says "upgrade magento", "update magento version",
-  or invokes /upgrade. Accepts optional target version argument like /upgrade 2.4.8-p1.
-tools: Bash, Read, Edit, Write
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # Magento Upgrade
