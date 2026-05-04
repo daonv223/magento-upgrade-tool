@@ -99,6 +99,10 @@ cd "$MAGENTO_PATH"
     "${ANALYSE_PATHS[@]}" \
     2>/dev/null | php -r '
 $data = json_decode(file_get_contents("php://stdin"), true);
+if (!is_array($data) || !isset($data["files"]) || !is_array($data["files"])) {
+    echo json_encode(["totals" => ["file_errors" => 0], "files" => [], "errors" => []]) . "\n";
+    exit(0);
+}
 $generated = "/(?:Factory|Proxy|Interceptor|ExtensionInterface|ExtensionAttributesFactory)[\.\,\s]/";
 $filtered = 0;
 foreach ($data["files"] as $file => &$fileData) {

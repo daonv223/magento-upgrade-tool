@@ -20,7 +20,10 @@ def parse_report(path):
         data = json.load(f)
 
     results = []
-    for module_name, module_data in data.get("files", {}).items():
+    files = data.get("files", {})
+    if not isinstance(files, dict):
+        return results
+    for module_name, module_data in files.items():
         error_count = module_data.get("errors", 0)
         identifiers = set()
         for file_data in module_data.get("files", {}).values():
