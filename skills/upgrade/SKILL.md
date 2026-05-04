@@ -126,11 +126,6 @@ php composer.phar require magento/product-community-edition <TARGET_VERSION> --n
 php composer.phar require-commerce magento/product-enterprise-edition <TARGET_VERSION> --no-update
 ```
 
-If target version >= 2.4.8, also add the Amasty compatibility fix:
-```bash
-php composer.phar require amasty/module-mage-248-fix --no-update
-```
-
 ### Step 9: Disable Patches
 
 If `composer.json` has a `patches` section inside `extra` (used by `cweagans/composer-patches`), disable it before running composer update — patches were written for old vendor code and will likely fail on new versions.
@@ -153,22 +148,108 @@ if (isset($c["extra"]["patches"])) {
 
 Report to user which patches were disabled.
 
-### Step 10: Dry Run
+### Step 10: Analyze Third-Party Packages & Resolve Conflicts
+
+#### 10a: Run Dry Run
 
 ```bash
 php composer.phar update -W --dry-run 2>&1
 ```
 
-If errors about dependency upgrades needed (e.g. "package X requires Y ^2.0 but root requires ^1.0"):
-- Tell user which third-party modules need upgrading to be compatible with the target Magento version
-- List each module with its current constraint and what version is needed
-- Do NOT automatically remove or change constraints on third-party modules
+If clean (exit 0), skip to Step 11.
 
-If errors about PHP incompatibility in `require` packages:
-- Tell user which packages need PHP-compatible versions
-- Ask user to decide: upgrade the package or remove it
+If errors occur, parse the output to extract conflicting packages. Common error patterns:
+- `"<package> X.Y.Z requires <dep> ^N.0 but …"` — version conflict
+- `"<package> is locked to version X.Y.Z and an update … is not allowed"` — lock constraint
+- `"<package> requires php ^X.Y but your php version …"` — PHP incompatibility
 
-Loop until clean or user decides to stop.
+Collect a list of all conflicting **non-Magento** packages (skip `magento/*` packages — those are handled by the framework update).
+
+#### 10b: Check Available Versions for Each Conflicting Package
+
+For each conflicting package, check what versions exist:
+
+```bash
+php composer.phar show <package> --all --format=json 2>/dev/null | php -r '
+$d = json_decode(file_get_contents("php://stdin"), true);
+echo "name: " . ($d["name"] ?? "?") . "\n";
+echo "abandoned: " . (isset($d["abandoned"]) ? ($d["abandoned"] ?: "yes") : "no") . "\n";
+echo "versions: " . implode(", ", array_slice($d["versions"] ?? [], 0, 10)) . "\n";
+'
+```
+
+If the `--format=json` flag is not supported, fall back to:
+
+```bash
+php composer.phar show <package> --all 2>/dev/null | grep -E "^(versions|abandoned)"
+```
+
+For each package, also check its latest version's requirements:
+
+```bash
+php composer.phar show <package> <latest_version> 2>/dev/null | grep -E "^requires"
+```
+
+#### 10c: Categorize Each Package
+
+Based on the information gathered, categorize each conflicting package:
+
+| Category | Criteria | Action |
+|----------|----------|--------|
+| **Upgrade** | A newer version exists that supports the target PHP and doesn't conflict with Magento | Recommend specific version to require |
+| **Widen** | Current version actually supports target but constraint is too narrow (e.g. `"1.2.3"` instead of `"^1.2"`) | Recommend widening constraint |
+| **Replace** | Package is marked `abandoned` with a suggested replacement | Recommend replacement package |
+| **Remove** | Package is abandoned with no replacement, or no version supports target PHP/Magento | Recommend removal (ask user to confirm it's not critical) |
+| **Investigate** | Can't determine compatibility automatically (private repo, no version info) | Flag for manual review |
+
+#### 10d: Present Recommendations
+
+Present a table to the user:
+
+```
+┌─────────────────────────────┬───────────┬────────────┬──────────────────────────────┐
+│ Package                     │ Current   │ Action     │ Recommendation               │
+├─────────────────────────────┼───────────┼────────────┼──────────────────────────────┤
+│ vendor/package-a            │ ^1.0      │ Upgrade    │ Require ^2.0 (supports PHP   │
+│                             │           │            │ 8.3 + Magento 2.4.8)         │
+│ vendor/package-b            │ 3.2.1     │ Widen      │ Change to ^3.2               │
+│ vendor/package-c            │ ^1.5      │ Replace    │ Replace with vendor/new-pkg  │
+│ vendor/package-d            │ ^2.0      │ Remove     │ Abandoned, no compatible ver  │
+│ vendor/package-e            │ ^4.0      │ Investigate│ Private repo, check manually │
+└─────────────────────────────┴───────────┴────────────┴──────────────────────────────┘
+```
+
+Ask user to confirm or adjust each action before proceeding.
+
+#### 10e: Apply Confirmed Actions
+
+After user confirms, apply all changes in one command where possible:
+
+**Upgrades and widens:**
+```bash
+php composer.phar require <package-a>:"^2.0" <package-b>:"^3.2" --no-update 2>&1
+```
+
+**Replacements:**
+```bash
+php composer.phar remove <old-package> --no-update 2>&1
+php composer.phar require <new-package>:"^1.0" --no-update 2>&1
+```
+
+**Removals:**
+```bash
+php composer.phar remove <package-d> --no-update 2>&1
+```
+
+#### 10f: Re-run Dry Run
+
+```bash
+php composer.phar update -W --dry-run 2>&1
+```
+
+If new conflicts appear, repeat from 10b for the newly conflicting packages.
+
+Loop until dry-run is clean or user decides to stop.
 
 ### Step 11: Backup Vendor and Apply Update
 
@@ -193,7 +274,7 @@ rm -rf vendor/
 unzip -qo vendor-backup.zip
 ```
 
-2. Report the error to user and use same approach as Step 10 — tell user which modules need upgrading.
+2. Report the error to user and run the same analysis as Step 10b–10d to identify and recommend fixes for conflicting packages.
 
 3. After user confirms fixes, re-apply Steps 7–10, then retry Step 11.
 

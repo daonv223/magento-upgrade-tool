@@ -35,7 +35,16 @@ Ask the user:
 
 Remove excluded vendors from the list. The remaining vendors are `ACCEPTED_VENDORS`.
 
-## Step 4: Scan Each Module
+## Step 4: Clean Old Reports
+
+Remove any previous scan reports to avoid stale data:
+
+```bash
+rm -f "$MAGENTO_ROOT"/reports/risky-findings-app-code-*.json
+rm -f "$MAGENTO_ROOT"/reports/3rd-party-modules-review.xlsx
+```
+
+## Step 5: Scan Each Module
 
 For each accepted vendor, list its modules:
 
@@ -43,13 +52,19 @@ For each accepted vendor, list its modules:
 ls -d "$MAGENTO_ROOT"/app/code/<Vendor>/*/ | xargs -n1 basename
 ```
 
-For each module `<Vendor>_<Module>`, run the problem scanner:
+Run all module scans in parallel (up to 5 concurrent) using background processes:
 
 ```bash
-scripts/scan-problems "$MAGENTO_ROOT" --paths="/app/code/<Vendor>/<Module>" 2>&1
+for module_path in "$MAGENTO_ROOT"/app/code/<Vendor>/*/; do
+  module=$(basename "$module_path")
+  scripts/scan-problems "$MAGENTO_ROOT" --paths="/app/code/<Vendor>/$module" 2>&1 &
+  # Limit to 5 concurrent jobs
+  while [ "$(jobs -r | wc -l)" -ge 5 ]; do sleep 1; done
+done
+wait
 ```
 
-This produces a JSON report at `$MAGENTO_ROOT/reports/risky-findings-app-code-<Vendor>-<Module>.json`.
+Each scan produces a JSON report at `$MAGENTO_ROOT/reports/risky-findings-app-code-<Vendor>-<Module>.json`.
 
 After all scans complete, parse all reports at once using the bundled parser:
 
@@ -59,9 +74,23 @@ python3 scripts/parse-report "$MAGENTO_ROOT"/reports/risky-findings-app-code-*.j
 
 This outputs JSON with `module`, `errors`, and `types` (unique problem identifiers) per module.
 
-If the scanner fails for a module, skip it and continue to the next module.
+If a scanner fails for a module, skip it and continue.
 
-## Step 5: Generate XLSX Report
+## Step 6: Classify Each Module
+
+**Spawn the `module-classifier` agent** (uses Sonnet) to classify all modules in parallel.
+
+Pass to the agent:
+- `$MAGENTO_ROOT` — the Magento project root
+- `$MODULES` — "all" (or list specific modules if only a subset was scanned)
+- `$CLIENT_VENDOR` — ask the user which vendor name(s) are their own in-house modules (e.g. "Betanet,Fisha")
+- `$SCAN_RESULTS` — `$MAGENTO_ROOT/reports/`
+
+The agent runs obfuscation checks and origin detection for all modules concurrently, reads the scan reports from Step 5, applies the decision logic, and returns a JSON array with `module`, `errors`, `need_upgrade`, and `comment` for each module.
+
+Wait for the agent to complete before proceeding to Step 7.
+
+## Step 7: Generate XLSX Report
 
 Use the **xlsx skill** to create the report file at `MAGENTO_ROOT/reports/3rd-party-modules-review.xlsx`.
 
@@ -73,19 +102,21 @@ Follow the xlsx skill guidelines for creating Excel files with openpyxl. Use for
 |--------|---------|
 | A | Module (e.g. `Amasty_Promo`) |
 | B | Number of Problems |
-| C | Problem Types — comma-separated list of unique `identifier` values (e.g. `return.missing, class.notFound, property.notFound`) |
+| C | Need to upgrade? — "Yes", "No", or blank (if 0 errors) |
+| D | Comments — reason for the decision (e.g. "Encrypted code — must get new version from vendor", "Low error count (5), all auto-fixable — fix in place", "In-house module — fix in place") |
 
 Requirements:
 - Header row: bold, with background color `#4472C4` and white text, font Arial
 - Auto-filter enabled on all columns
 - Column A width: 40
 - Column B width: 20, center-aligned
-- Column C width: 60, wrap text enabled
+- Column C width: 20, center-aligned
+- Column D width: 60, wrap text enabled
 - Sort rows by number of problems descending
 - Add a total row at the bottom: "TOTAL" in column A, `=SUM(B2:B<last>)` formula in column B, bold
 - After saving, recalculate formulas using the xlsx skill's recalc script
 
-## Step 6: Report to User
+## Step 8: Report to User
 
 Tell the user:
 
