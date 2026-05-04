@@ -1,4 +1,6 @@
 ---
+description: Magento version upgrade assistant. Detects edition/version, handles composer updates, and fixes errors
+argument-hint: <target-version>
 allowed-tools: Bash, Read, Edit, Write
 ---
 

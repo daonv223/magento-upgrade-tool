@@ -11,23 +11,9 @@ Scan all third-party modules in `app/code/` for upgrade problems and produce an 
 
 - `$ARGUMENTS` — (optional) path to Magento root. If omitted, auto-detect.
 
-## Step 1: Detect Magento Root and Plugin Root
+## Step 1: Detect Magento Root
 
-**Plugin root**: This plugin is installed at a fixed location. Resolve it by finding the directory containing this command file. The scanner and parser tools live under the plugin root:
-- Scanner: `<PLUGIN_ROOT>/autofixer/bin/scan-problems`
-- Parser: `<PLUGIN_ROOT>/autofixer/bin/parse-report`
-
-To find the plugin root, search for the `autofixer/bin/scan-problems` file:
-```bash
-find ~/.claude/plugins -path "*/magento-upgrade-tool/autofixer/bin/scan-problems" -exec dirname {} \; 2>/dev/null | head -1 | sed 's|/autofixer/bin||'
-```
-If not found there, also check common locations:
-```bash
-find ~/Sites -maxdepth 4 -path "*/upgrade-tool/src/autofixer/bin/scan-problems" -exec dirname {} \; 2>/dev/null | head -1 | sed 's|/autofixer/bin||'
-```
-Store as `PLUGIN_ROOT`.
-
-**Magento root**: If `$ARGUMENTS` is provided, use it as `MAGENTO_ROOT`. Otherwise, start from `pwd` and walk upward until you find `bin/magento`. Store that directory as `MAGENTO_ROOT`. If not found, stop and report: *"No Magento project detected."*
+If `$ARGUMENTS` is provided, use it as `MAGENTO_ROOT`. Otherwise, start from `pwd` and walk upward until you find `bin/magento`. Store that directory as `MAGENTO_ROOT`. If not found, stop and report: *"No Magento project detected."*
 
 ## Step 2: List Vendors
 
@@ -60,7 +46,7 @@ ls -d "$MAGENTO_ROOT"/app/code/<Vendor>/*/ | xargs -n1 basename
 For each module `<Vendor>_<Module>`, run the problem scanner:
 
 ```bash
-"$PLUGIN_ROOT/autofixer/bin/scan-problems" "$MAGENTO_ROOT" --paths="/app/code/<Vendor>/<Module>" 2>&1
+scripts/scan-problems "$MAGENTO_ROOT" --paths="/app/code/<Vendor>/<Module>" 2>&1
 ```
 
 This produces a JSON report at `$MAGENTO_ROOT/reports/risky-findings-app-code-<Vendor>-<Module>.json`.
@@ -68,7 +54,7 @@ This produces a JSON report at `$MAGENTO_ROOT/reports/risky-findings-app-code-<V
 After all scans complete, parse all reports at once using the bundled parser:
 
 ```bash
-python3 "$PLUGIN_ROOT/autofixer/bin/parse-report" "$MAGENTO_ROOT"/reports/risky-findings-app-code-*.json
+python3 scripts/parse-report "$MAGENTO_ROOT"/reports/risky-findings-app-code-*.json
 ```
 
 This outputs JSON with `module`, `errors`, and `types` (unique problem identifiers) per module.
@@ -97,7 +83,7 @@ Requirements:
 - Column C width: 60, wrap text enabled
 - Sort rows by number of problems descending
 - Add a total row at the bottom: "TOTAL" in column A, `=SUM(B2:B<last>)` formula in column B, bold
-- After saving, recalculate formulas using `python scripts/recalc.py` from the xlsx skill
+- After saving, recalculate formulas using the xlsx skill's recalc script
 
 ## Step 6: Report to User
 

@@ -7,22 +7,5 @@
     "name": "daonv223",
     "email": "dao@betanet.co.il"
   },
-  "skills": "./skills/",
-  "commands": {
-    "fix": {
-      "source": "./commands/fix.md",
-      "description": "Scan a Magento path for upgrade issues and offer AI-powered fixes",
-      "argumentHint": "<path>",
-      "model": "claude-sonnet-4-6"
-    },
-    "upgrade": {
-      "source": "./commands/upgrade.md",
-      "description": "Magento version upgrade assistant. Detects edition/version, handles composer updates, and fixes errors",
-      "argumentHint": "<target-version>"
-    },
-    "review-modules": {
-      "source": "./commands/review-modules.md",
-      "description": "Review all 3rd-party modules in app/code, scan for problems, and generate an xlsx report"
-    }
-  }
+  "skills": "./skills/"
 }

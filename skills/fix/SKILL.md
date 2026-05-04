@@ -12,23 +12,9 @@ Scan a Magento project path for context-dependent upgrade issues, then offer to 
 
 - `$ARGUMENTS` — relative path inside the Magento project (e.g. `app/code/Betanet` or `app/code/Betanet/MyModule`).
 
-## Step 1: Detect Plugin Root and Magento Project
+## Step 1: Detect Magento Root
 
-**Plugin root**: Find the plugin's install location by locating the scanner:
-```bash
-find ~/.claude/plugins -path "*/magento-upgrade-tool/autofixer/bin/scan-problems" -exec dirname {} \; 2>/dev/null | head -1 | sed 's|/autofixer/bin||'
-```
-If not found, also check:
-```bash
-find ~/Sites -maxdepth 4 -path "*/upgrade-tool/src/autofixer/bin/scan-problems" -exec dirname {} \; 2>/dev/null | head -1 | sed 's|/autofixer/bin||'
-```
-Store as `PLUGIN_ROOT`.
-
-**Magento root**:
-1. Start from the current working directory (`pwd`).
-2. Walk upward parent directories until you find `bin/magento`.
-3. If found, store that directory as `MAGENTO_ROOT`.
-4. If you reach the filesystem root without finding `bin/magento`, stop and report: *"No Magento project detected. Please run this command from inside a Magento project."*
+Start from the current working directory (`pwd`). Walk upward parent directories until you find `bin/magento`. Store that directory as `MAGENTO_ROOT`. If you reach the filesystem root without finding it, stop and report: *"No Magento project detected. Please run this command from inside a Magento project."*
 
 ## Step 2: Normalize Scan Path
 
@@ -44,7 +30,7 @@ Example: `app/code/Betanet` → `/app/code/Betanet`.
 Execute the bundled scanner:
 
 ```bash
-"$PLUGIN_ROOT/autofixer/bin/scan-problems" "$MAGENTO_ROOT" --paths="$SCAN_PATH"
+scripts/scan-problems "$MAGENTO_ROOT" --paths="$SCAN_PATH"
 ```
 
 Wait for it to finish. Note the output file path printed at the end (usually `$MAGENTO_ROOT/reports/risky-findings-<sanitized-path>.json`).
